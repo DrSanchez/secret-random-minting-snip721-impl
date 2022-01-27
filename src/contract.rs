@@ -665,8 +665,6 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
     let sender_raw = deps.api.canonical_address(&env.message.sender)?;  
     let snip20_address: HumanAddr = load(&deps.storage, SNIP20_ADDRESS_KEY)?;
 
-
-
     // Checks how many tokens are left
     let mut count: u16 = load(&deps.storage, COUNT_KEY)?;
 
@@ -676,12 +674,8 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
         ));
     }
 
-
-
-
     //Whitelist management
     //Checks if minter has a whitelist reservation, and removes their reservation after minting
-
     if load(&deps.storage, WHITELIST_ACTIVE_KEY)?  {
         let whitecount: u8 = load(&deps.storage, WHITELIST_COUNT_KEY)?;
         let mut white_store = PrefixedStorage::new(PREFIX_WHITELIST, &mut deps.storage);
@@ -702,11 +696,6 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
         }     
 
     }
-
-  
-
-
-
  
     //Payment distribution
     let mut msg_list: Vec<CosmosMsg> = vec![];
@@ -722,9 +711,12 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
         let rate :u128 = (royalty.rate as u128) * (10 as u128).pow(decimal_places);
         let amount = Uint128((MINT_COST * rate) / (100 as u128).pow(decimal_places));
         let recipient = deps.api.human_address(&royalty.recipient).unwrap();
+
+        // let cosmos_msg = transfer_msg(recipient: HumanAddr, amount: Uint128, memo: Option<String>, padding: Option<String>, block_size: usize, callback_code_hash: String, contract_addr: HumanAddr)
         let cosmos_msg = transfer_msg(
             recipient,
             amount,
+            memo,
             padding.clone(),
             block_size.clone(),
             callback_code_hash.clone(),
@@ -732,10 +724,6 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
         )?;
         msg_list.push(cosmos_msg);
     }
- 
-
-
-
 
     // Pull random token data for minting then remove from data pool
     let prng_seed: Vec<u8> = load(&deps.storage, PRNG_SEED_KEY)?;
@@ -807,8 +795,6 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
 
     //Set variables for response logs
     let url_str = format!("{} ",token_data.priv_img_url.clone());
-
-
 
     let mut mints = vec![Mint {
         token_id,
