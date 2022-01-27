@@ -53,7 +53,7 @@ use secret_toolkit::snip20::handle::{register_receive_msg,transfer_msg};
 
 
 /// Mint cost
-pub const MINT_COST: u128 = 10000000; //WRITE IN LOWEST DENOMINATION OF YOUR PREFERRED SNIP
+pub const MINT_COST: u128 = 7000000; //WRITE IN LOWEST DENOMINATION OF YOUR PREFERRED SNIP
 
 
 ////////////////////////////////////// Init ///////////////////////////////////////
@@ -141,6 +141,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         )?;
     }
 
+    // unused var warning seems to be because the Ok() below is not triggering a usage notice
     // perform the post init callback if needed
     let messages: Vec<CosmosMsg> = if let Some(callback) = msg.post_init_callback {
         let execute = WasmMsg::Execute {
@@ -461,10 +462,6 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     pad_handle_result(response, BLOCK_SIZE)
 }
 
-
-
-
-
 /// For receiving SNIP20s and minting
 pub fn receive<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -508,8 +505,6 @@ pub fn receive<S: Storage, A: Api, Q: Querier>(
      }
 }
 
-
-
 /// Lets Admin load metadata used in random minting
 pub fn pre_load<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -526,24 +521,16 @@ pub fn pre_load<S: Storage, A: Api, Q: Querier>(
     }
 
     let mut id: u16 = load(&deps.storage, COUNT_KEY)?;
- 
 
     for data in new_data.iter() {
         id = id+1;
         save(&mut deps.storage, &id.clone().to_le_bytes(), data)?;
-
     }
 
     save(&mut deps.storage, COUNT_KEY, &id)?;
-    
-
 
     Ok(HandleResponse::default())
-
-
 }
-
-
 
 /// Lets Admin load whitelist
 pub fn load_whitelist<S: Storage, A: Api, Q: Querier>(
@@ -563,28 +550,22 @@ pub fn load_whitelist<S: Storage, A: Api, Q: Querier>(
     let mut whitecount: u8 = 0;
     let mut white_store = PrefixedStorage::new(PREFIX_WHITELIST, &mut deps.storage);
 
-
     for hum_addr in whitelist.iter() {
         let raw_addr = deps.api.canonical_address(&hum_addr)?;
 
         // Saves FALSE to show addr has not minted
         save(&mut white_store, &raw_addr.as_slice(), &false)?;
 
-
         whitecount = whitecount + 1;
-
     }
 
 
     // Saves whitelist and marks as being active
     save(&mut deps.storage, WHITELIST_ACTIVE_KEY, &true)?;
     save(&mut deps.storage, WHITELIST_COUNT_KEY, &whitecount)?;
-    
-
 
     Ok(HandleResponse::default())
 }
-
 
 /// Lets Admin deactivate whitelist
 pub fn deactivate_whitelist<S: Storage, A: Api, Q: Querier>(
@@ -661,11 +642,11 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
 ) -> HandleResult {
     check_status(config.status, priority)?;
 
+    // For this implementation, we dont need a memo for a mint operation
+    let memo = None;
 
     let sender_raw = deps.api.canonical_address(&env.message.sender)?;  
     let snip20_address: HumanAddr = load(&deps.storage, SNIP20_ADDRESS_KEY)?;
-
-
 
     // Checks how many tokens are left
     let mut count: u16 = load(&deps.storage, COUNT_KEY)?;
@@ -676,12 +657,8 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
         ));
     }
 
-
-
-
     //Whitelist management
     //Checks if minter has a whitelist reservation, and removes their reservation after minting
-
     if load(&deps.storage, WHITELIST_ACTIVE_KEY)?  {
         let whitecount: u8 = load(&deps.storage, WHITELIST_COUNT_KEY)?;
         let mut white_store = PrefixedStorage::new(PREFIX_WHITELIST, &mut deps.storage);
@@ -694,19 +671,12 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
             save(&mut deps.storage, WHITELIST_COUNT_KEY, &(whitecount-1))?;
             
         }
-
         else if whitecount as u16 >= count {
             return Err(StdError::generic_err(
                 "Remaining tokens are reserved",
             ));
-        }     
-
+        }
     }
-
-  
-
-
-
  
     //Payment distribution
     let mut msg_list: Vec<CosmosMsg> = vec![];
@@ -718,13 +688,17 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
     let block_size = 256;
  
     for royalty in royalty_list.royalties.iter() {
+        let local_memo = memo.clone();
         let decimal_places : u32 = royalty_list.decimal_places_in_rates.into();
         let rate :u128 = (royalty.rate as u128) * (10 as u128).pow(decimal_places);
         let amount = Uint128((MINT_COST * rate) / (100 as u128).pow(decimal_places));
         let recipient = deps.api.human_address(&royalty.recipient).unwrap();
+
+        // let cosmos_msg = transfer_msg(recipient: HumanAddr, amount: Uint128, memo: Option<String>, padding: Option<String>, block_size: usize, callback_code_hash: String, contract_addr: HumanAddr)
         let cosmos_msg = transfer_msg(
             recipient,
             amount,
+            local_memo,
             padding.clone(),
             block_size.clone(),
             callback_code_hash.clone(),
@@ -732,10 +706,6 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
         )?;
         msg_list.push(cosmos_msg);
     }
- 
-
-
-
 
     // Pull random token data for minting then remove from data pool
     let prng_seed: Vec<u8> = load(&deps.storage, PRNG_SEED_KEY)?;
@@ -744,7 +714,6 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
 
     let num =(rng.next_u32() % (count as u32)) as u16 + 1; // an id number between 1 and count
 
-
     let token_data: PreLoad = load(&deps.storage, &num.to_le_bytes())?;
     let swap_data: PreLoad = load(&deps.storage, &count.to_le_bytes())?;
     
@@ -752,8 +721,6 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
 
     save(&mut deps.storage, &num.to_le_bytes(), &swap_data)?;
     save(&mut deps.storage, COUNT_KEY, &count)?;
-
-
 
     let public_metadata = Some(Metadata {
         token_uri: None,
@@ -801,14 +768,10 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
 
     let serial_number = None;
     let royalty_info = Some((may_load::<StoredRoyaltyInfo, _>(&deps.storage, DEFAULT_ROYALTY_KEY)?.unwrap()).to_human_old(&deps.api)?);
-    let memo = None;
     let token_id: Option<String> = Some(token_data.id.clone());
-
 
     //Set variables for response logs
     let url_str = format!("{} ",token_data.priv_img_url.clone());
-
-
 
     let mut mints = vec![Mint {
         token_id,
