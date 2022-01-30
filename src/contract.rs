@@ -109,8 +109,8 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     let count: u16 = 0;
 
     let minters = vec![admin_raw];
-    save(&mut deps.storage, SNIP20_HASH_KEY, &snip20_hash)?;
-    save(&mut deps.storage, SNIP20_ADDRESS_KEY, &snip20_address)?;
+    save(&mut deps.storage, SNIP20_HASH_KEY, &snip20_hash.clone())?;
+    save(&mut deps.storage, SNIP20_ADDRESS_KEY, &snip20_address.clone())?;
     save(&mut deps.storage, CONFIG_KEY, &config)?;
     save(&mut deps.storage, MINTERS_KEY, &minters)?;
     save(&mut deps.storage, PRNG_SEED_KEY, &prng_seed)?;
@@ -153,6 +153,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     } else {
         Vec::new()
     };
+
     Ok(InitResponse {
         messages: vec![
             register_receive_msg(
@@ -163,7 +164,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
                 snip20_address
             )?
         ],
-        log: vec![],
+        log: vec![]
     })
 }
 
@@ -717,7 +718,7 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
     let public_metadata = Some(Metadata {
         token_uri: None,
         extension: Some(Extension {
-            image: token_data.img_url,
+            image: Some(token_data.img_url.clone()),
             image_data: None,
             external_url: None,
             description: None,
@@ -739,7 +740,7 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
             external_url: None,
             description: None,
             name: None,
-            attributes: None,
+            attributes: token_data.priv_attributes.clone(),
             background_color: None,
             animation_url: None,
             youtube_url: None,
@@ -747,7 +748,7 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
                 MediaFile {
                     file_type: Some("image".to_string()),
                     extension: Some("png".to_string()),
-                    url: String::from("INSERT_ENCRYPTED_LINK_HERE"),
+                    url: token_data.priv_img_url.clone(),
                     authentication: Some(Authentication {
                         key: None,
                         user: None,
