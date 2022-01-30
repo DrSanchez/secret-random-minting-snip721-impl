@@ -47,14 +47,15 @@ pub const ID_BLOCK_SIZE: u32 = 64;
 use rand_chacha::ChaChaRng;
 use rand::{RngCore, SeedableRng};
 
-
 //Snip 20 usage
 use secret_toolkit::snip20::handle::{register_receive_msg,transfer_msg};
 
+// current secret mainnet chain id
+// pub const CHAIN_ID: &str = "secret-4";
+pub const CHAIN_ID: &str = "pulsar-2";
 
 /// Mint cost
-pub const MINT_COST: u128 = 7000000; //WRITE IN LOWEST DENOMINATION OF YOUR PREFERRED SNIP
-
+pub const MINT_COST: u128 = 10000000; //WRITE IN LOWEST DENOMINATION OF YOUR PREFERRED SNIP
 
 ////////////////////////////////////// Init ///////////////////////////////////////
 /// Returns InitResult
@@ -103,7 +104,6 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         burn_is_enabled: init_config.enable_burn.unwrap_or(false),
     };
 
-
     let snip20_hash: String = msg.snip20_hash;
     let snip20_address: HumanAddr = msg.snip20_address;
     let count: u16 = 0;
@@ -141,9 +141,8 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         )?;
     }
 
-    // unused var warning seems to be because the Ok() below is not triggering a usage notice
     // perform the post init callback if needed
-    let messages: Vec<CosmosMsg> = if let Some(callback) = msg.post_init_callback {
+    let _messages: Vec<CosmosMsg> = if let Some(callback) = msg.post_init_callback {
         let execute = WasmMsg::Execute {
             msg: callback.msg,
             contract_addr: callback.contract_address,
@@ -588,10 +587,6 @@ pub fn deactivate_whitelist<S: Storage, A: Api, Q: Querier>(
     Ok(HandleResponse::default())
 }
 
-
-
-
-
 pub fn new_entropy(env: &Env, seed: &[u8], entropy: &[u8])-> [u8;32]{
     // 16 here represents the lengths in bytes of the block height and time.
     let entropy_len = 16 + env.message.sender.len() + entropy.len();
@@ -605,9 +600,6 @@ pub fn new_entropy(env: &Env, seed: &[u8], entropy: &[u8])-> [u8;32]{
 
     rng.rand_bytes()
 }
-
-
-
 
 /// Returns HandleResult
 ///
@@ -694,7 +686,6 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
         let amount = Uint128((MINT_COST * rate) / (100 as u128).pow(decimal_places));
         let recipient = deps.api.human_address(&royalty.recipient).unwrap();
 
-        // let cosmos_msg = transfer_msg(recipient: HumanAddr, amount: Uint128, memo: Option<String>, padding: Option<String>, block_size: usize, callback_code_hash: String, contract_addr: HumanAddr)
         let cosmos_msg = transfer_msg(
             recipient,
             amount,
@@ -708,29 +699,30 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
     }
 
     // Pull random token data for minting then remove from data pool
-    let prng_seed: Vec<u8> = load(&deps.storage, PRNG_SEED_KEY)?;
-    let random_seed  = new_entropy(&env,prng_seed.as_ref(),prng_seed.as_ref());
-    let mut rng = ChaChaRng::from_seed(random_seed);
+    // let prng_seed: Vec<u8> = load(&deps.storage, PRNG_SEED_KEY)?;
+    // let random_seed  = new_entropy(&env,prng_seed.as_ref(),prng_seed.as_ref());
+    // let mut rng = ChaChaRng::from_seed(random_seed);
 
-    let num =(rng.next_u32() % (count as u32)) as u16 + 1; // an id number between 1 and count
+    // let num =(rng.next_u32() % (count as u32)) as u16 + 1; // an id number between 1 and count
 
-    let token_data: PreLoad = load(&deps.storage, &num.to_le_bytes())?;
-    let swap_data: PreLoad = load(&deps.storage, &count.to_le_bytes())?;
+    let token_data: PreLoad = load(&deps.storage, &count.to_le_bytes())?;
+    // let token_data: PreLoad = load(&deps.storage, &num.to_le_bytes())?;
+    // let swap_data: PreLoad = load(&deps.storage, &count.to_le_bytes())?;
     
     count = count-1;
 
-    save(&mut deps.storage, &num.to_le_bytes(), &swap_data)?;
+    // save(&mut deps.storage, &num.to_le_bytes(), &swap_data)?;
     save(&mut deps.storage, COUNT_KEY, &count)?;
 
     let public_metadata = Some(Metadata {
         token_uri: None,
         extension: Some(Extension {
-            image: None,
+            image: token_data.img_url,
             image_data: None,
             external_url: None,
             description: None,
             name: None,
-            attributes: None,
+            attributes: token_data.attributes.clone(),
             background_color: None,
             animation_url: None,
             youtube_url: None,
@@ -2095,7 +2087,7 @@ pub fn query_royalty<S: Storage, A: Api, Q: Querier>(
         let block: BlockInfo = may_load(&deps.storage, BLOCK_KEY)?.unwrap_or_else(|| BlockInfo {
             height: 1,
             time: 1,
-            chain_id: "secret-3".to_string(),
+            chain_id: CHAIN_ID.to_string(),
         });
         // if the token id was found
         if let Ok((token, idx)) = get_token(&deps.storage, id, None) {
@@ -2596,7 +2588,7 @@ pub fn query_token_approvals<S: Storage, A: Api, Q: Querier>(
     let block: BlockInfo = may_load(&deps.storage, BLOCK_KEY)?.unwrap_or_else(|| BlockInfo {
         height: 1,
         time: 1,
-        chain_id: "secret-3".to_string(),
+        chain_id: CHAIN_ID.to_string(),
     });
     let perm_type_info = PermissionTypeInfo {
         view_owner_idx: PermissionType::ViewOwner.to_usize(),
@@ -2667,7 +2659,7 @@ pub fn query_inventory_approvals<S: Storage, A: Api, Q: Querier>(
     let block: BlockInfo = may_load(&deps.storage, BLOCK_KEY)?.unwrap_or_else(|| BlockInfo {
         height: 1,
         time: 1,
-        chain_id: "secret-3".to_string(),
+        chain_id: CHAIN_ID.to_string(),
     });
     let all_store = ReadonlyPrefixedStorage::new(PREFIX_ALL_PERMISSIONS, &deps.storage);
     let mut all_perm: Vec<Permission> =
@@ -2743,7 +2735,7 @@ pub fn query_approved_for_all<S: Storage, A: Api, Q: Querier>(
     let block: BlockInfo = may_load(&deps.storage, BLOCK_KEY)?.unwrap_or_else(|| BlockInfo {
         height: 1,
         time: 1,
-        chain_id: "secret-3".to_string(),
+        chain_id: CHAIN_ID.to_string(),
     });
     let mut operators: Vec<Cw721Approval> = Vec::new();
     let all_store = ReadonlyPrefixedStorage::new(PREFIX_ALL_PERMISSIONS, &deps.storage);
@@ -2838,14 +2830,14 @@ pub fn query_tokens<S: Storage, A: Api, Q: Querier>(
         let b: BlockInfo = may_load(&deps.storage, BLOCK_KEY)?.unwrap_or_else(|| BlockInfo {
             height: 1,
             time: 1,
-            chain_id: "secret-3".to_string(),
+            chain_id: CHAIN_ID.to_string(),
         });
         b
     } else {
         BlockInfo {
             height: 1,
             time: 1,
-            chain_id: "secret-3".to_string(),
+            chain_id: CHAIN_ID.to_string(),
         }
     };
     let exp_idx = PermissionType::ViewOwner.to_usize();
@@ -3028,7 +3020,7 @@ pub fn query_verify_approval<S: Storage, A: Api, Q: Querier>(
     let block: BlockInfo = may_load(&deps.storage, BLOCK_KEY)?.unwrap_or_else(|| BlockInfo {
         height: 1,
         time: 1,
-        chain_id: "secret-3".to_string(),
+        chain_id: CHAIN_ID.to_string(),
     });
     let mut oper_for: Vec<CanonicalAddr> = Vec::new();
     for id in token_ids {
@@ -3118,7 +3110,7 @@ fn query_token_prep<S: Storage, A: Api, Q: Querier>(
     let block: BlockInfo = may_load(&deps.storage, BLOCK_KEY)?.unwrap_or_else(|| BlockInfo {
         height: 1,
         time: 1,
-        chain_id: "secret-3".to_string(),
+        chain_id: CHAIN_ID.to_string(),
     });
     let err_msg = format!(
         "You are not authorized to perform this action on token {}",

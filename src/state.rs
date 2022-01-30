@@ -474,12 +474,7 @@ pub struct  PreLoad {
     pub priv_img_url: String,
     pub attributes : Option<Vec<Trait>>,
     pub priv_attributes: Option<Vec<Trait>>,
-    pub priv_key: String,
 }
-
-
-
-
 
 /// Returns StdResult<()> resulting from saving an item to storage
 ///
