@@ -109,8 +109,8 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     let count: u16 = 0;
 
     let minters = vec![admin_raw];
-    save(&mut deps.storage, SNIP20_HASH_KEY, &snip20_hash.clone())?;
-    save(&mut deps.storage, SNIP20_ADDRESS_KEY, &snip20_address.clone())?;
+    save(&mut deps.storage, SNIP20_HASH_KEY, &snip20_hash)?;
+    save(&mut deps.storage, SNIP20_ADDRESS_KEY, &snip20_address)?;
     save(&mut deps.storage, CONFIG_KEY, &config)?;
     save(&mut deps.storage, MINTERS_KEY, &minters)?;
     save(&mut deps.storage, PRNG_SEED_KEY, &prng_seed)?;
@@ -193,7 +193,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             amount,
             msg
         } => {
-            receive(deps, env, sender, from, amount, msg)
+            receive(deps, env, &mut config, sender, from, amount, msg)
         },
         HandleMsg::PreLoad {
             new_data,
@@ -466,6 +466,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
 pub fn receive<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
+    config: &mut Config,
     _sender: HumanAddr,
     from: HumanAddr,
     amount: Uint128,
@@ -474,9 +475,10 @@ pub fn receive<S: Storage, A: Api, Q: Querier>(
     let snip20_address: HumanAddr = load(&deps.storage, SNIP20_ADDRESS_KEY)?;
 
     if env.message.sender != snip20_address {
-        return Err(StdError::generic_err(
-            "Address is not correct snip contract",
-        ));
+        return Err(StdError::generic_err(format!(
+            "Address {} doesnt match contract {}",
+            env.message.sender, snip20_address
+        )));
     }
 
     if amount.u128() != MINT_COST {
@@ -485,8 +487,6 @@ pub fn receive<S: Storage, A: Api, Q: Querier>(
         ));
     }
 
-    let mut config: Config = load(&deps.storage, CONFIG_KEY)?;
-
     if let Some(bin_msg) = msg {
         match from_binary(&bin_msg)? {
             HandleReceiveMsg::ReceiveMint {
@@ -494,7 +494,7 @@ pub fn receive<S: Storage, A: Api, Q: Querier>(
                 mint(
                     deps,
                     env,
-                    &mut config,
+                    config,
                     ContractStatus::Normal.to_u8(),
                     Some(from),
                 )
