@@ -701,7 +701,8 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
 
     count = count-1;
     save(&mut deps.storage, COUNT_KEY, &count)?;
-
+    let mut token_name = String::from("Dragon #");
+    token_name.push_str(&token_data.id);
     let public_metadata = Some(Metadata {
         token_uri: None,
         extension: Some(Extension {
@@ -709,7 +710,7 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
             image_data: None,
             external_url: None,
             description: None,
-            name: None,
+            name: Some(token_name),
             attributes: token_data.attributes.clone(),
             background_color: None,
             animation_url: None,
