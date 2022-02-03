@@ -43,18 +43,17 @@ pub const BLOCK_SIZE: usize = 256;
 /// max number of token ids to keep in id list block
 pub const ID_BLOCK_SIZE: u32 = 64;
 
-// For randomization
-use rand_chacha::ChaChaRng;
-use rand::{RngCore, SeedableRng};
-
-
 //Snip 20 usage
 use secret_toolkit::snip20::handle::{register_receive_msg,transfer_msg};
 
+// current secret mainnet chain id
+// pub const CHAIN_ID: &str = "secret-4";
+pub const CHAIN_ID: &str = "pulsar-2";
 
 /// Mint cost
-pub const MINT_COST: u128 = 7000000; //WRITE IN LOWEST DENOMINATION OF YOUR PREFERRED SNIP
+pub const MINT_COST: u128 = 10000000; // 10 sSCRT
 
+pub const WHITELIST_MINT_CAP: u8 = 2;
 
 ////////////////////////////////////// Init ///////////////////////////////////////
 /// Returns InitResult
@@ -103,10 +102,10 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         burn_is_enabled: init_config.enable_burn.unwrap_or(false),
     };
 
-
     let snip20_hash: String = msg.snip20_hash;
     let snip20_address: HumanAddr = msg.snip20_address;
     let count: u16 = 0;
+    let whitelist_count: u8 = 0;
 
     let minters = vec![admin_raw];
     save(&mut deps.storage, SNIP20_HASH_KEY, &snip20_hash)?;
@@ -116,6 +115,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     save(&mut deps.storage, PRNG_SEED_KEY, &prng_seed)?;
     save(&mut deps.storage, COUNT_KEY, &count)?;
     save(&mut deps.storage, WHITELIST_ACTIVE_KEY, &false)?;
+    save(&mut deps.storage, WHITELIST_COUNT_KEY, &whitelist_count)?;
 
     // TODO remove this after BlockInfo becomes available to queries
     save(&mut deps.storage, BLOCK_KEY, &env.block)?;
@@ -141,9 +141,8 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
         )?;
     }
 
-    // unused var warning seems to be because the Ok() below is not triggering a usage notice
     // perform the post init callback if needed
-    let messages: Vec<CosmosMsg> = if let Some(callback) = msg.post_init_callback {
+    let _messages: Vec<CosmosMsg> = if let Some(callback) = msg.post_init_callback {
         let execute = WasmMsg::Execute {
             msg: callback.msg,
             contract_addr: callback.contract_address,
@@ -154,6 +153,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     } else {
         Vec::new()
     };
+
     Ok(InitResponse {
         messages: vec![
             register_receive_msg(
@@ -164,7 +164,7 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
                 snip20_address
             )?
         ],
-        log: vec![],
+        log: vec![]
     })
 }
 
@@ -193,7 +193,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             amount,
             msg
         } => {
-            receive(deps, env, sender, from, amount, msg)
+            receive(deps, env, &mut config, sender, from, amount, msg)
         },
         HandleMsg::PreLoad {
             new_data,
@@ -462,49 +462,6 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     pad_handle_result(response, BLOCK_SIZE)
 }
 
-/// For receiving SNIP20s and minting
-pub fn receive<S: Storage, A: Api, Q: Querier>(
-    deps: &mut Extern<S, A, Q>,
-    env: Env,
-    _sender: HumanAddr,
-    from: HumanAddr,
-    amount: Uint128,
-    msg: Option<Binary>,
-) -> HandleResult {
-    let snip20_address: HumanAddr = load(&deps.storage, SNIP20_ADDRESS_KEY)?;
-
-    if env.message.sender != snip20_address {
-        return Err(StdError::generic_err(
-            "Address is not correct snip contract",
-        ));
-    }
-
-    if amount.u128() != MINT_COST {
-        return Err(StdError::generic_err(
-            "You have attempted to send the wrong amount of tokens",
-        ));
-    }
-
-    let mut config: Config = load(&deps.storage, CONFIG_KEY)?;
-
-    if let Some(bin_msg) = msg {
-        match from_binary(&bin_msg)? {
-            HandleReceiveMsg::ReceiveMint {
-            } => {
-                mint(
-                    deps,
-                    env,
-                    &mut config,
-                    ContractStatus::Normal.to_u8(),
-                    Some(from),
-                )
-            }
-        }
-     } else {
-        Err(StdError::generic_err("data should be given"))
-     }
-}
-
 /// Lets Admin load metadata used in random minting
 pub fn pre_load<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -547,18 +504,17 @@ pub fn load_whitelist<S: Storage, A: Api, Q: Querier>(
         ));
     }
 
-    let mut whitecount: u8 = 0;
+    // TODO: u8 may be too small in the distant future
+    let mut whitecount: u8 = load(&deps.storage, WHITELIST_COUNT_KEY)?;
     let mut white_store = PrefixedStorage::new(PREFIX_WHITELIST, &mut deps.storage);
 
-    for hum_addr in whitelist.iter() {
-        let raw_addr = deps.api.canonical_address(&hum_addr)?;
-
-        // Saves FALSE to show addr has not minted
-        save(&mut white_store, &raw_addr.as_slice(), &false)?;
-
+    // unroll whitelist here instead of during each mint
+    for addr in whitelist.iter() {
+        let raw_addr = deps.api.canonical_address(&addr)?;
+        let white_cap: u8 = WHITELIST_MINT_CAP;
+        save(&mut white_store, &raw_addr.as_slice(), &white_cap)?;
         whitecount = whitecount + 1;
     }
-
 
     // Saves whitelist and marks as being active
     save(&mut deps.storage, WHITELIST_ACTIVE_KEY, &true)?;
@@ -582,15 +538,9 @@ pub fn deactivate_whitelist<S: Storage, A: Api, Q: Querier>(
     }
 
     save(&mut deps.storage, WHITELIST_ACTIVE_KEY, &false)?;
-    
-
 
     Ok(HandleResponse::default())
 }
-
-
-
-
 
 pub fn new_entropy(env: &Env, seed: &[u8], entropy: &[u8])-> [u8;32]{
     // 16 here represents the lengths in bytes of the block height and time.
@@ -606,8 +556,47 @@ pub fn new_entropy(env: &Env, seed: &[u8], entropy: &[u8])-> [u8;32]{
     rng.rand_bytes()
 }
 
+/// For receiving SNIP20s and minting
+pub fn receive<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    config: &mut Config,
+    _sender: HumanAddr,
+    from: HumanAddr,
+    amount: Uint128,
+    msg: Option<Binary>,
+) -> HandleResult {
+    let snip20_address: HumanAddr = load(&deps.storage, SNIP20_ADDRESS_KEY)?;
 
+    if env.message.sender != snip20_address {
+        return Err(StdError::generic_err(format!(
+            "Address is not sSCRT contract"
+        )));
+    }
 
+    if amount.u128() != MINT_COST {
+        return Err(StdError::generic_err(
+            "You have attempted to send the wrong amount of tokens",
+        ));
+    }
+
+    if let Some(bin_msg) = msg {
+        match from_binary(&bin_msg)? {
+            HandleReceiveMsg::ReceiveMint {
+            } => {
+                mint(
+                    deps,
+                    env,
+                    config,
+                    ContractStatus::Normal.to_u8(),
+                    Some(from),
+                )
+            }
+        }
+     } else {
+        Err(StdError::generic_err("data should be given"))
+     }
+}
 
 /// Returns HandleResult
 ///
@@ -644,9 +633,8 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
 
     // For this implementation, we dont need a memo for a mint operation
     let memo = None;
-
-    let sender_raw = deps.api.canonical_address(&env.message.sender)?;  
     let snip20_address: HumanAddr = load(&deps.storage, SNIP20_ADDRESS_KEY)?;
+    let buyer_raw = deps.api.canonical_address(&owner.clone().unwrap())?;
 
     // Checks how many tokens are left
     let mut count: u16 = load(&deps.storage, COUNT_KEY)?;
@@ -657,19 +645,22 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
         ));
     }
 
-    //Whitelist management
-    //Checks if minter has a whitelist reservation, and removes their reservation after minting
+    // is whitelist active
     if load(&deps.storage, WHITELIST_ACTIVE_KEY)?  {
         let whitecount: u8 = load(&deps.storage, WHITELIST_COUNT_KEY)?;
         let mut white_store = PrefixedStorage::new(PREFIX_WHITELIST, &mut deps.storage);
 
-        let list_check: Option<bool> = may_load(&white_store, deps.api.canonical_address(&owner.clone().unwrap())?.as_slice())?;
+        let list_check: Option<u8> = may_load(&white_store, deps.api.canonical_address(&owner.clone().unwrap())?.as_slice())?;
 
-        // If addr is on list and hasn't minted
-        if list_check != None && list_check.unwrap() == false {
-            save(&mut white_store, &deps.api.canonical_address(&owner.clone().unwrap())?.as_slice(), &true)?;
-            save(&mut deps.storage, WHITELIST_COUNT_KEY, &(whitecount-1))?;
-            
+        // If addr is on list and hasn't hit their mint cap
+        if list_check != None && list_check.unwrap() > 0 {
+            let mut x: u8 = list_check.unwrap();
+            x = x - 1;
+            save(&mut white_store, &deps.api.canonical_address(&owner.clone().unwrap())?.as_slice(), &x)?;
+            if x == 0 {
+                // if x goes to zero, this addr minted their cap
+                save(&mut deps.storage, WHITELIST_COUNT_KEY, &(whitecount-1))?;
+            }
         }
         else if whitecount as u16 >= count {
             return Err(StdError::generic_err(
@@ -694,7 +685,6 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
         let amount = Uint128((MINT_COST * rate) / (100 as u128).pow(decimal_places));
         let recipient = deps.api.human_address(&royalty.recipient).unwrap();
 
-        // let cosmos_msg = transfer_msg(recipient: HumanAddr, amount: Uint128, memo: Option<String>, padding: Option<String>, block_size: usize, callback_code_hash: String, contract_addr: HumanAddr)
         let cosmos_msg = transfer_msg(
             recipient,
             amount,
@@ -707,30 +697,20 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
         msg_list.push(cosmos_msg);
     }
 
-    // Pull random token data for minting then remove from data pool
-    let prng_seed: Vec<u8> = load(&deps.storage, PRNG_SEED_KEY)?;
-    let random_seed  = new_entropy(&env,prng_seed.as_ref(),prng_seed.as_ref());
-    let mut rng = ChaChaRng::from_seed(random_seed);
+    let token_data: PreLoad = load(&deps.storage, &count.to_le_bytes())?;
 
-    let num =(rng.next_u32() % (count as u32)) as u16 + 1; // an id number between 1 and count
-
-    let token_data: PreLoad = load(&deps.storage, &num.to_le_bytes())?;
-    let swap_data: PreLoad = load(&deps.storage, &count.to_le_bytes())?;
-    
     count = count-1;
-
-    save(&mut deps.storage, &num.to_le_bytes(), &swap_data)?;
     save(&mut deps.storage, COUNT_KEY, &count)?;
 
     let public_metadata = Some(Metadata {
         token_uri: None,
         extension: Some(Extension {
-            image: None,
+            image: Some(token_data.img_url.clone()),
             image_data: None,
             external_url: None,
             description: None,
             name: None,
-            attributes: None,
+            attributes: token_data.attributes.clone(),
             background_color: None,
             animation_url: None,
             youtube_url: None,
@@ -747,7 +727,7 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
             external_url: None,
             description: None,
             name: None,
-            attributes: None,
+            attributes: token_data.priv_attributes.clone(),
             background_color: None,
             animation_url: None,
             youtube_url: None,
@@ -755,7 +735,7 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
                 MediaFile {
                     file_type: Some("image".to_string()),
                     extension: Some("png".to_string()),
-                    url: String::from("INSERT_ENCRYPTED_LINK_HERE"),
+                    url: token_data.priv_img_url.clone(),
                     authentication: Some(Authentication {
                         key: None,
                         user: None,
@@ -783,7 +763,7 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
         memo,
     }];
 
-    let mut minted = mint_list(deps, &env, config, &sender_raw, &mut mints)?;
+    let mut minted = mint_list(deps, &env, config, &buyer_raw, &mut mints)?;
     let minted_str = minted.pop().unwrap_or_else(String::new);
     Ok(HandleResponse {
         messages: msg_list,
@@ -2095,7 +2075,7 @@ pub fn query_royalty<S: Storage, A: Api, Q: Querier>(
         let block: BlockInfo = may_load(&deps.storage, BLOCK_KEY)?.unwrap_or_else(|| BlockInfo {
             height: 1,
             time: 1,
-            chain_id: "secret-3".to_string(),
+            chain_id: CHAIN_ID.to_string(),
         });
         // if the token id was found
         if let Ok((token, idx)) = get_token(&deps.storage, id, None) {
@@ -2596,7 +2576,7 @@ pub fn query_token_approvals<S: Storage, A: Api, Q: Querier>(
     let block: BlockInfo = may_load(&deps.storage, BLOCK_KEY)?.unwrap_or_else(|| BlockInfo {
         height: 1,
         time: 1,
-        chain_id: "secret-3".to_string(),
+        chain_id: CHAIN_ID.to_string(),
     });
     let perm_type_info = PermissionTypeInfo {
         view_owner_idx: PermissionType::ViewOwner.to_usize(),
@@ -2667,7 +2647,7 @@ pub fn query_inventory_approvals<S: Storage, A: Api, Q: Querier>(
     let block: BlockInfo = may_load(&deps.storage, BLOCK_KEY)?.unwrap_or_else(|| BlockInfo {
         height: 1,
         time: 1,
-        chain_id: "secret-3".to_string(),
+        chain_id: CHAIN_ID.to_string(),
     });
     let all_store = ReadonlyPrefixedStorage::new(PREFIX_ALL_PERMISSIONS, &deps.storage);
     let mut all_perm: Vec<Permission> =
@@ -2743,7 +2723,7 @@ pub fn query_approved_for_all<S: Storage, A: Api, Q: Querier>(
     let block: BlockInfo = may_load(&deps.storage, BLOCK_KEY)?.unwrap_or_else(|| BlockInfo {
         height: 1,
         time: 1,
-        chain_id: "secret-3".to_string(),
+        chain_id: CHAIN_ID.to_string(),
     });
     let mut operators: Vec<Cw721Approval> = Vec::new();
     let all_store = ReadonlyPrefixedStorage::new(PREFIX_ALL_PERMISSIONS, &deps.storage);
@@ -2838,14 +2818,14 @@ pub fn query_tokens<S: Storage, A: Api, Q: Querier>(
         let b: BlockInfo = may_load(&deps.storage, BLOCK_KEY)?.unwrap_or_else(|| BlockInfo {
             height: 1,
             time: 1,
-            chain_id: "secret-3".to_string(),
+            chain_id: CHAIN_ID.to_string(),
         });
         b
     } else {
         BlockInfo {
             height: 1,
             time: 1,
-            chain_id: "secret-3".to_string(),
+            chain_id: CHAIN_ID.to_string(),
         }
     };
     let exp_idx = PermissionType::ViewOwner.to_usize();
@@ -3028,7 +3008,7 @@ pub fn query_verify_approval<S: Storage, A: Api, Q: Querier>(
     let block: BlockInfo = may_load(&deps.storage, BLOCK_KEY)?.unwrap_or_else(|| BlockInfo {
         height: 1,
         time: 1,
-        chain_id: "secret-3".to_string(),
+        chain_id: CHAIN_ID.to_string(),
     });
     let mut oper_for: Vec<CanonicalAddr> = Vec::new();
     for id in token_ids {
@@ -3118,7 +3098,7 @@ fn query_token_prep<S: Storage, A: Api, Q: Querier>(
     let block: BlockInfo = may_load(&deps.storage, BLOCK_KEY)?.unwrap_or_else(|| BlockInfo {
         height: 1,
         time: 1,
-        chain_id: "secret-3".to_string(),
+        chain_id: CHAIN_ID.to_string(),
     });
     let err_msg = format!(
         "You are not authorized to perform this action on token {}",
