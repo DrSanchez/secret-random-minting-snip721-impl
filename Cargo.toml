@@ -1,6 +1,6 @@
 [package]
-name = "snip721-reference-impl"
-version = "0.1.0"
+name = "snip721-contract"
+version = "0.4.20"
 authors = ["bill wincer"]
 edition = "2018"
 

@@ -32,7 +32,7 @@ use crate::state::{
     PREFIX_ALL_PERMISSIONS, PREFIX_AUTHLIST, PREFIX_INFOS, PREFIX_MAP_TO_ID, PREFIX_MAP_TO_INDEX,
     PREFIX_MINT_RUN, PREFIX_MINT_RUN_NUM, PREFIX_OWNER_PRIV, PREFIX_PRIV_META, PREFIX_PUB_META,
     PREFIX_RECEIVERS, PREFIX_REVOKED_PERMITS, PREFIX_ROYALTY_INFO, PREFIX_VIEW_KEY, PRNG_SEED_KEY, SNIP20_ADDRESS_KEY, SNIP20_HASH_KEY, 
-    DEFAULT_MINT_FUNDS_DISTRIBUTION_KEY, WHITELIST_COUNT_KEY, WHITELIST_ACTIVE_KEY, PREFIX_WHITELIST,
+    DEFAULT_MINT_FUNDS_DISTRIBUTION_KEY, WHITELIST_COUNT_KEY, WHITELIST_ACTIVE_KEY, PREFIX_WHITELIST, CONTRACT_IS_SEALED
 };
 use crate::token::{Authentication, MediaFile, Metadata, Token, Extension};
 use crate::viewing_key::{ViewingKey, VIEWING_KEY_SIZE};
@@ -214,7 +214,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         },
         HandleMsg::UnsealContract {
         } => {
-            unseal_contract(deps, env, &config);
+            unseal_contract(deps, env, &mut config)
         }
         HandleMsg::SetMetadata {
             token_id,
