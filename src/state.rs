@@ -16,6 +16,8 @@ use crate::msg::{Tx, TxAction};
 
 use crate::token::Trait;
 
+/// storage key for if the contract is still sealed
+pub const CONTRACT_IS_SEALED: &[u8] = b"contractissealed";
 /// prefix for the storage of snip20 address
 pub const SNIP20_ADDRESS_KEY: &[u8] = b"sscrt";
 /// Storage for storing the hash of the snip20 contract
@@ -471,6 +473,7 @@ pub struct  PreLoad {
     pub id: String,
     pub img_url: String,
     pub priv_img_url: String,
+    pub priv_img_privkey: String,
     pub attributes : Option<Vec<Trait>>,
     pub priv_attributes: Option<Vec<Trait>>,
 }

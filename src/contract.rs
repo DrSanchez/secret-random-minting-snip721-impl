@@ -51,7 +51,7 @@ use secret_toolkit::snip20::handle::{register_receive_msg,transfer_msg};
 pub const CHAIN_ID: &str = "pulsar-2";
 
 /// Mint cost
-pub const MINT_COST: u128 = 10000000; // 10 sSCRT
+pub const MINT_COST: u128 = 5000000; // 5 sSCRT
 
 pub const WHITELIST_MINT_CAP: u8 = 2;
 
@@ -116,6 +116,9 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     save(&mut deps.storage, COUNT_KEY, &count)?;
     save(&mut deps.storage, WHITELIST_ACTIVE_KEY, &false)?;
     save(&mut deps.storage, WHITELIST_COUNT_KEY, &whitelist_count)?;
+
+    // set initial contract status to sealed
+    save(&mut deps.storage, CONTRACT_IS_SEALED, &true)?;
 
     // TODO remove this after BlockInfo becomes available to queries
     save(&mut deps.storage, BLOCK_KEY, &env.block)?;
@@ -209,6 +212,10 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         } => {
             deactivate_whitelist(deps, env, &config)
         },
+        HandleMsg::UnsealContract {
+        } => {
+            unseal_contract(deps, env, &config);
+        }
         HandleMsg::SetMetadata {
             token_id,
             public_metadata,
@@ -462,6 +469,23 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     pad_handle_result(response, BLOCK_SIZE)
 }
 
+pub fn unseal_contract<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    config: &mut Config,
+) -> HandleResult {
+    let sender_raw = deps.api.canonical_address(&env.message.sender)?;
+    if config.admin != sender_raw {
+        return Err(StdError::generic_err(
+            "The contract may only be unsealed by the admin",
+        ));
+    }
+
+    save(&mut deps.storage, CONTRACT_IS_SEALED, &false)?;
+
+    Ok(HandleResponse::default())
+}
+
 /// Lets Admin load metadata used in random minting
 pub fn pre_load<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
@@ -577,6 +601,13 @@ pub fn receive<S: Storage, A: Api, Q: Querier>(
     if amount.u128() != MINT_COST {
         return Err(StdError::generic_err(
             "You have attempted to send the wrong amount of tokens",
+        ));
+    }
+
+    let contract_is_sealed: bool = load(&deps.storage, CONTRACT_IS_SEALED)?;
+    if contract_is_sealed {
+        return Err(StdError::generic_err(
+            "This contract has not yet been unsealed!",
         ));
     }
 
@@ -701,8 +732,6 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
 
     count = count-1;
     save(&mut deps.storage, COUNT_KEY, &count)?;
-    let mut token_name = String::from("Dragon #");
-    token_name.push_str(&token_data.id);
     let public_metadata = Some(Metadata {
         token_uri: None,
         extension: Some(Extension {
@@ -710,7 +739,7 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
             image_data: None,
             external_url: None,
             description: None,
-            name: Some(token_name),
+            name: None,
             attributes: token_data.attributes.clone(),
             background_color: None,
             animation_url: None,
@@ -738,7 +767,7 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
                     extension: Some("png".to_string()),
                     url: token_data.priv_img_url.clone(),
                     authentication: Some(Authentication {
-                        key: None,
+                        key: Some(token_data.priv_img_privkey.clone()),
                         user: None,
                     })
                 }
