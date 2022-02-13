@@ -692,11 +692,9 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
                 // if x goes to zero, this addr minted their cap
                 save(&mut deps.storage, WHITELIST_COUNT_KEY, &(whitecount-1))?;
             }
-        }
-        else if whitecount as u16 >= count {
-            return Err(StdError::generic_err(
-                "Remaining tokens are reserved",
-            ));
+        } // addr not on whitelist, or has minted to their cap
+        else if list_check == None || list_check.unwrap_or(0) == 0 {
+            return Err(StdError::generic_err("Tokens are reserved"))
         }
     }
  
