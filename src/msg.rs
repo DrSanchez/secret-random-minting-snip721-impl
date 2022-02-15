@@ -139,6 +139,9 @@ pub enum HandleMsg {
     DeactivateWhitelist {
 
     },
+    /// unseal the contract
+    UnsealContract {
+    },
     /// set the public and/or private metadata.  This can be called by either the token owner or
     /// a valid minter if they have been given this power by the appropriate config values
     SetMetadata {
