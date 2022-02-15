@@ -10,7 +10,7 @@ use crate::mint_run::{MintRunInfo, SerialNumber};
 use crate::royalties::{DisplayRoyaltyInfo, RoyaltyInfo};
 use crate::token::{Extension, Metadata};
 
-use crate::state::{PreLoad};
+use crate::state::{PreLoad, Prize};
 
 /// Instantiation message
 #[derive(Serialize, Deserialize, JsonSchema)]
@@ -141,6 +141,15 @@ pub enum HandleMsg {
     },
     /// unseal the contract
     UnsealContract {
+    },
+    /// try claiming the grand prize
+    TryClaim {
+        passphrase: String,
+        viewer: ViewerInfo,
+    },
+    /// Preloads metadata for random mints
+    InjectPrize {
+        prize_data: Prize,
     },
     /// set the public and/or private metadata.  This can be called by either the token owner or
     /// a valid minter if they have been given this power by the appropriate config values
@@ -455,6 +464,11 @@ pub struct Send {
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum HandleAnswer {
+    ClaimPrize {
+        prize_key: String,
+        prize_addr: String,
+        prize_img: Option<String>,
+    },
     ToPub {
         status: ResponseStatus, 
     },

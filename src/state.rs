@@ -16,6 +16,10 @@ use crate::msg::{Tx, TxAction};
 
 use crate::token::Trait;
 
+/// storage key for if the prize is claimable
+pub const PRIZE_CLAIMABLE: &[u8] = b"prizeclaimable";
+/// storage key for if prize has been injected yet
+pub const PRIZE_INJECT_LOCK: &[u8] = b"prizeinjectlock";
 /// storage key for if the contract is still sealed
 pub const CONTRACT_IS_SEALED: &[u8] = b"contractissealed";
 /// prefix for the storage of snip20 address
@@ -110,6 +114,16 @@ pub struct Config {
     pub owner_may_update_metadata: bool,
     /// is burn enabled
     pub burn_is_enabled: bool,
+}
+
+
+/// structure for holding the grand prize datas
+#[derive(Serialize, Deserialize, Clone, JsonSchema, PartialEq, Debug)]
+pub struct Prize {
+    pub prize_wallet_addr: String,
+    pub prize_wallet_key: String,
+    pub prize_phrase: String,
+    pub img_url: Option<String>,
 }
 
 /// tx type and specifics

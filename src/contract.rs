@@ -26,13 +26,12 @@ use crate::rand::{sha_256, Prng};
 use crate::receiver::{batch_receive_nft_msg, receive_nft_msg};
 use crate::royalties::{RoyaltyInfo, StoredRoyaltyInfo};
 use crate::state::{
-    get_txs, json_may_load, json_save, load, may_load, remove, save, store_burn, store_mint,
+    get_txs, json_may_load, json_save, load, may_load, remove, save, store_burn, store_mint, Prize,
     store_transfer, AuthList, Config, Permission, PermissionType, ReceiveRegistration, PreLoad, BLOCK_KEY, COUNT_KEY,
-    CONFIG_KEY, CREATOR_KEY, DEFAULT_ROYALTY_KEY, MINTERS_KEY, MY_ADDRESS_KEY,
-    PREFIX_ALL_PERMISSIONS, PREFIX_AUTHLIST, PREFIX_INFOS, PREFIX_MAP_TO_ID, PREFIX_MAP_TO_INDEX,
-    PREFIX_MINT_RUN, PREFIX_MINT_RUN_NUM, PREFIX_OWNER_PRIV, PREFIX_PRIV_META, PREFIX_PUB_META,
+    CONFIG_KEY, CREATOR_KEY, DEFAULT_ROYALTY_KEY, MINTERS_KEY, MY_ADDRESS_KEY, PREFIX_ALL_PERMISSIONS, PREFIX_AUTHLIST,
+    PREFIX_INFOS, PREFIX_MAP_TO_ID, PREFIX_MAP_TO_INDEX, PREFIX_MINT_RUN, PREFIX_MINT_RUN_NUM, PREFIX_OWNER_PRIV, PREFIX_PRIV_META, PREFIX_PUB_META,
     PREFIX_RECEIVERS, PREFIX_REVOKED_PERMITS, PREFIX_ROYALTY_INFO, PREFIX_VIEW_KEY, PRNG_SEED_KEY, SNIP20_ADDRESS_KEY, SNIP20_HASH_KEY, 
-    DEFAULT_MINT_FUNDS_DISTRIBUTION_KEY, WHITELIST_COUNT_KEY, WHITELIST_ACTIVE_KEY, PREFIX_WHITELIST, CONTRACT_IS_SEALED
+    DEFAULT_MINT_FUNDS_DISTRIBUTION_KEY, WHITELIST_COUNT_KEY, WHITELIST_ACTIVE_KEY, PREFIX_WHITELIST, CONTRACT_IS_SEALED, PRIZE_INJECT_LOCK, PRIZE_CLAIMABLE
 };
 use crate::token::{Authentication, MediaFile, Metadata, Token, Extension};
 use crate::viewing_key::{ViewingKey, VIEWING_KEY_SIZE};
@@ -215,7 +214,18 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         HandleMsg::UnsealContract {
         } => {
             unseal_contract(deps, env, &mut config)
-        }
+        },
+        HandleMsg::TryClaim {
+            passphrase,
+            viewer,
+        } => {
+            try_claim(deps, env, &mut config, passphrase, viewer)
+        },
+        HandleMsg::InjectPrize {
+            prize_data,
+        } => {
+            inject_prize(deps, env, &config, prize_data)
+        },
         HandleMsg::SetMetadata {
             token_id,
             public_metadata,
@@ -469,6 +479,108 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
     pad_handle_result(response, BLOCK_SIZE)
 }
 
+/// method for users to attempt to claim the grand prize
+pub fn try_claim<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    config: &mut Config,
+    passphrase: String,
+    viewer: ViewerInfo,
+) -> HandleResult {
+
+    // contract is sealed do nothing
+    if load(&deps.storage, CONTRACT_IS_SEALED)? {
+        return Err(StdError::generic_err(
+            "This contract has not yet been unsealed!",
+        ));
+    }
+
+    // prize not ready to be claimed
+    if !load(&deps.storage, PRIZE_CLAIMABLE)? {
+        return Err(StdError::generic_err(
+            "The adventure is not complete, the prize is not claimable!",
+        ));
+    }
+
+    // abort if passphrase string is empty
+    if passphrase.is_empty() {
+        return Err(StdError::generic_err(
+            "You have attempted to claim the prize with nothing, what a waste.",
+        ));
+    }
+
+    if env.message.sender != viewer.address {
+        return Err(StdError::generic_err("Addresses do not match, something fishy may be going on"));
+    }
+
+    // verify active dragon owner
+    let result = query_tokens(deps,
+                              &viewer.address.clone(),
+                              Some(viewer.address.clone()),
+                              Some(viewer.viewing_key.clone()),
+                              None, None, None);
+    if let Some(bin_msg) = result {
+        match from_binary(&bin_msg)? {
+            QueryAnswer::TokenList {
+                tokens
+            } => {
+                // strict check for not empty AND more than 0
+                // this user will definitely have a token if they enter this block
+                if !tokens.is_empty() &&  tokens.len() > 0 {
+                    // try to find the prize contents
+                    if let Some(prize) = may_load(&deps.storage, sha_256(base64::encode(passphrase).as_bytes()))? {
+                        // some result, we found the prize
+                        Ok(HandleResponse {
+                            messages: vec![],
+                            log: vec![
+                                log("successfully cracked the puzzle!"),
+                            ],
+                            data: Some(to_binary(&HandleAnswer::ClaimPrize{
+                                prize_key: &prize.prize_key.clone(),
+                                prize_addr: &prize.prize_wallet_addr.clone(),
+                                prize_img: &prize.prize_img,
+                            })?),
+                        })
+                    } else {
+                        // none result, return error
+                        Err(StdError::generic_err("That is not the answer"))
+                    }
+                }
+            }
+        }
+    } else {
+        Err(StdError::generic_err("expected some result from query_tokens, got None"))
+    }
+}
+
+/// lets the admin inject the grand prize data object
+/// WARNING: this can only ever be invoked once, if you mess up the contract needs completely redeployed
+pub fn inject_prize<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    config: &Config,
+    prize_data: Prize
+) -> HandleResult {
+    let sender_raw = deps.api.canonical_address(&env.message.sender)?;
+
+    if config.admin != sender_raw {
+        return Err(StdError::generic_err(
+            "This function is only usable by the Admin",
+        ));
+    }
+    if load(&deps.storage, PRIZE_INJECT_LOCK)? {
+        return Err(StdError::generic_err("This function has already been executed"));
+    }
+
+    save(&mut deps.storage, sha_256(base64::encode(prize_data.prize_phrase).as_bytes()), &prize_data)?;
+
+    // set prize lock, this method can never be called again
+    save(&mut deps.storage, PRIZE_INJECT_LOCK, &true)?;
+
+    Ok(HandleResponse::default())
+}
+
+/// lets the admin unseal the minting functionality in the contract
 pub fn unseal_contract<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
@@ -604,8 +716,7 @@ pub fn receive<S: Storage, A: Api, Q: Querier>(
         ));
     }
 
-    let contract_is_sealed: bool = load(&deps.storage, CONTRACT_IS_SEALED)?;
-    if contract_is_sealed {
+    if load(&deps.storage, CONTRACT_IS_SEALED)? {
         return Err(StdError::generic_err(
             "This contract has not yet been unsealed!",
         ));
@@ -728,8 +839,15 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
 
     let token_data: PreLoad = load(&deps.storage, &count.to_le_bytes())?;
 
+    // decrement token counter
     count = count-1;
     save(&mut deps.storage, COUNT_KEY, &count)?;
+
+    // remaining token count hit zero, unlock it the prize!
+    if count == 0 {
+        save(&mut deps.storage, PRIZE_CLAIMABLE, &true)?;
+    }
+
     let public_metadata = Some(Metadata {
         token_uri: None,
         extension: Some(Extension {
