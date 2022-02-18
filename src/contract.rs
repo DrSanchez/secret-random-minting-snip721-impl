@@ -483,7 +483,7 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
 pub fn try_claim<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
-    config: &mut Config,
+    _config: &mut Config,
     passphrase: String,
     viewer: ViewerInfo,
 ) -> HandleResult {
@@ -518,38 +518,40 @@ pub fn try_claim<S: Storage, A: Api, Q: Querier>(
                               &viewer.address.clone(),
                               Some(viewer.address.clone()),
                               Some(viewer.viewing_key.clone()),
-                              None, None, None);
-    if let Some(bin_msg) = result {
-        match from_binary(&bin_msg)? {
-            QueryAnswer::TokenList {
-                tokens
-            } => {
-                // strict check for not empty AND more than 0
-                // this user will definitely have a token if they enter this block
-                if !tokens.is_empty() &&  tokens.len() > 0 {
-                    // try to find the prize contents
-                    if let Some(prize) = may_load(&deps.storage, sha_256(base64::encode(passphrase).as_bytes()))? {
-                        // some result, we found the prize
-                        Ok(HandleResponse {
-                            messages: vec![],
-                            log: vec![
-                                log("successfully cracked the puzzle!"),
-                            ],
-                            data: Some(to_binary(&HandleAnswer::ClaimPrize{
-                                prize_key: &prize.prize_key.clone(),
-                                prize_addr: &prize.prize_wallet_addr.clone(),
-                                prize_img: &prize.prize_img,
-                            })?),
-                        })
-                    } else {
-                        // none result, return error
-                        Err(StdError::generic_err("That is not the answer"))
-                    }
+                              None, None, None)?;
+
+    match from_binary(&result)? {
+        QueryAnswer::TokenList {
+            tokens
+        } => {
+            // strict check for not empty AND more than 0
+            // this user will definitely have a token if they enter this block
+            if !tokens.is_empty() && tokens.len() > 0 {
+                // try to find the prize contents
+                let prize: Option<Prize> = may_load(&deps.storage, &sha_256(base64::encode(passphrase).as_bytes()).to_vec())?;
+                if prize != None {
+                    // some result, we found the prize
+                    let prize: Prize = prize.unwrap();
+                    Ok(HandleResponse {
+                        messages: vec![],
+                        log: vec![
+                            log("successfully cracked the puzzle!", &prize.prize_wallet_addr.clone()),
+                        ],
+                        data: Some(to_binary(&HandleAnswer::ClaimPrize{
+                            prize_key: prize.prize_wallet_key.clone(),
+                            prize_addr: prize.prize_wallet_addr.clone(),
+                            prize_img: Some(prize.img_url.unwrap_or(String::from(""))),
+                        })?),
+                    })
+                } else {
+                    // none result, return error
+                    return Err(StdError::generic_err("That is not the answer"));
                 }
+            } else {
+                return Err(StdError::generic_err("Not a verified owner"));
             }
-        }
-    } else {
-        Err(StdError::generic_err("expected some result from query_tokens, got None"))
+        },
+        _ => return Err(StdError::generic_err("Unexpected result querying tokens"))
     }
 }
 
@@ -572,7 +574,7 @@ pub fn inject_prize<S: Storage, A: Api, Q: Querier>(
         return Err(StdError::generic_err("This function has already been executed"));
     }
 
-    save(&mut deps.storage, sha_256(base64::encode(prize_data.prize_phrase).as_bytes()), &prize_data)?;
+    save(&mut deps.storage, &sha_256(base64::encode(&prize_data.prize_phrase.clone()).as_bytes()).to_vec(), &prize_data)?;
 
     // set prize lock, this method can never be called again
     save(&mut deps.storage, PRIZE_INJECT_LOCK, &true)?;
