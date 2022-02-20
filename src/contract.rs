@@ -116,8 +116,14 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     save(&mut deps.storage, WHITELIST_ACTIVE_KEY, &false)?;
     save(&mut deps.storage, WHITELIST_COUNT_KEY, &whitelist_count)?;
 
+    // initial locked value to false, prize ready to inject
+    save(&mut deps.storage, PRIZE_INJECT_LOCK, &false)?;
+
     // set initial contract status to sealed
     save(&mut deps.storage, CONTRACT_IS_SEALED, &true)?;
+
+    // initialize prize_claimableness to not
+    save(&mut deps.storage, PRIZE_CLAIMABLE, &false)?;
 
     // TODO remove this after BlockInfo becomes available to queries
     save(&mut deps.storage, BLOCK_KEY, &env.block)?;
@@ -483,11 +489,17 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
 pub fn try_claim<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
-    _config: &mut Config,
+    config: &mut Config,
     passphrase: String,
     viewer: ViewerInfo,
 ) -> HandleResult {
+    let sender_raw = deps.api.canonical_address(&env.message.sender)?;
 
+    if config.admin == sender_raw {
+        return Err(StdError::generic_err(
+            "This function shall not be usable by the Admin",
+        ));
+    }
     // contract is sealed do nothing
     if load(&deps.storage, CONTRACT_IS_SEALED)? {
         return Err(StdError::generic_err(
@@ -845,7 +857,7 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
     count = count-1;
     save(&mut deps.storage, COUNT_KEY, &count)?;
 
-    // remaining token count hit zero, unlock it the prize!
+    // remaining token count hit zero, unlock the prize!
     if count == 0 {
         save(&mut deps.storage, PRIZE_CLAIMABLE, &true)?;
     }
