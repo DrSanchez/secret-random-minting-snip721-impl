@@ -2091,6 +2091,8 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
             query_verify_approval(deps, &token_ids, viewer, None)
         }
         QueryMsg::IsUnwrapped { token_id } => query_is_unwrapped(&deps.storage, &token_id),
+        QueryMsg::IsContractSealed { } => query_is_contract_sealed(&deps.storage),
+        QueryMsg::IsPrizeClaimable { } => query_is_prize_claimable(&deps.storage),
         QueryMsg::TransactionHistory {
             address,
             viewing_key,
@@ -3113,6 +3115,25 @@ pub fn query_is_unwrapped<S: ReadonlyStorage>(storage: &S, token_id: &str) -> Qu
         }),
     }
 }
+/// Returns QueryAnswer of the sealed status of the contract
+///
+/// # Arguments
+///
+/// * `storage` - a reference to the contract's storage
+pub fn query_is_contract_sealed<S: ReadonlyStorage>(storage: &S) -> QueryResult {
+    let sealed: bool = load(storage, CONTRACT_IS_SEALED)?;
+    to_binary(&QueryAnswer::IsContractSealed { sealed })
+}
+/// Returns QueryAnswer of the claimability of the prize
+///
+/// # Arguments
+///
+/// * `storage` - a reference to the contract's storage
+pub fn query_is_prize_claimable<S: ReadonlyStorage>(storage: &S) -> QueryResult {
+    let claimable: bool = load(storage, PRIZE_CLAIMABLE)?;
+    to_binary(&QueryAnswer::IsPrizeClaimable { claimable })
+}
+
 
 /// Returns QueryResult displaying an optionally paginated list of all transactions
 /// involving a specified address, displayed in reverse chronological order

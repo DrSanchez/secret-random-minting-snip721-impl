@@ -648,6 +648,10 @@ pub enum QueryMsg {
         /// optional address and key requesting to view the number of tokens
         viewer: Option<ViewerInfo>,
     },
+    /// simple query for if contract is sealed to avoid users spending coins
+    IsContractSealed {},
+    /// simple query for if prize is claimable, meaning that every token has not been minted
+    IsPrizeClaimable {},
     /// display an optionally paginated list of all the tokens controlled by the contract.
     /// The token supply must either be public, or the querier must be an authenticated
     /// minter
@@ -899,6 +903,12 @@ pub enum QueryAnswer {
     },
     IsUnwrapped {
         token_is_unwrapped: bool,
+    },
+    IsContractSealed {
+        sealed: bool,
+    },
+    IsPrizeClaimable {
+        claimable: bool,
     },
     VerifyTransferApproval {
         approved_for_all: bool,
