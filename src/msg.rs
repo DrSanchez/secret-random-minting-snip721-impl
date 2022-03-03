@@ -146,10 +146,14 @@ pub enum HandleMsg {
     TryClaim {
         passphrase: String,
         viewer: ViewerInfo,
+        /// optional message length padding
+        padding: Option<String>,
     },
     /// Preloads metadata for random mints
     InjectPrize {
         prize_data: Prize,
+        /// optional message length padding
+        padding: Option<String>,
     },
     /// set the public and/or private metadata.  This can be called by either the token owner or
     /// a valid minter if they have been given this power by the appropriate config values

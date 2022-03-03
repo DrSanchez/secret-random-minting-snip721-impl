@@ -224,11 +224,13 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
         HandleMsg::TryClaim {
             passphrase,
             viewer,
+            ..
         } => {
             try_claim(deps, env, &mut config, passphrase, viewer)
         },
         HandleMsg::InjectPrize {
             prize_data,
+            ..
         } => {
             inject_prize(deps, env, &config, prize_data)
         },
